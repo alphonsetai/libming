@@ -311,6 +311,11 @@ getString(struct SWF_ACTIONPUSHPARAM *act)
 	switch( act->Type ) 
 	{
 	case PUSH_STRING: 
+		if (!act->p.String) /* Not a NULL string */
+		{
+		        SWF_warn("WARNING: Call to getString with NULL string.\n");
+		        break;
+		}
 		t=malloc(strlen(act->p.String)+3); /* 2 "'"s and a NULL */
 		strcpy(t,"'");
 		strcat(t,act->p.String);
@@ -329,7 +334,7 @@ getString(struct SWF_ACTIONPUSHPARAM *act)
 		}
 		else
 		{
-			t=malloc(4); /* Rdd */
+			t=malloc(5); /* Rddd */
 			sprintf(t,"R%d", act->p.RegisterNumber );
 			return t;
 		}
@@ -339,9 +344,19 @@ getString(struct SWF_ACTIONPUSHPARAM *act)
 		else
 			return "false";
 	case PUSH_DOUBLE: /* DOUBLE */
-		t=malloc(10); /* big enough? */
-		sprintf(t,"%g", act->p.Double );
+	{
+		char length_finder[1];
+		int needed_length = snprintf(length_finder, 1, "%g", act->p.Double) + 1;
+		if (needed_length <= 0)
+		{
+		        SWF_warn("WARNING: could not evaluate size of buffer (memory issue ?).\n");
+		        break;
+		}
+
+		t = malloc(needed_length);
+		sprintf(t, "%g", act->p.Double );
 		return t;
+	}
 	case PUSH_INT: /* INTEGER */
 		t=malloc(10); /* 32-bit decimal */
 		sprintf(t,"%ld", act->p.Integer );
@@ -392,20 +407,27 @@ getName(struct SWF_ACTIONPUSHPARAM *act)
 	switch( act->Type ) 	
 	{
 	case PUSH_STRING: /* STRING */
-		t=malloc(strlen(act->p.String)+3); 
-		/*
-		strcpy(t,"\"");
-		strcat(t,act->p.String);
-		strcat(t,"\"");
-		*/
-		strcpy(t,act->p.String);
-		if(strlen(t)) /* Not a zero length string */
-			return t;
+		if (!act->p.String) /* Not a NULL string */
+		{
+		        SWF_warn("WARNING: Call to getName with NULL string.\n");
+		        break;
+		}
+		else if (strlen(act->p.String)) /* Not a zero length string */
+		{
+		        t=malloc(strlen(act->p.String)+3);
+		        strcpyext(t,act->p.String);
+		        return t;
+		}
 		else
-			return "this";
+		{
+		        char *return_string = "this";
+	                t=malloc(strlen(return_string)+1); /* string length + \0 */
+	                strcpyext(t,return_string);
+			return t;
+		}
 #if 0
 	  case 4: /* REGISTER */
-                t=malloc(4); /* Rdd */
+		t=malloc(5); /* Rddd */
   		sprintf(t,"R%d", act->p.RegisterNumber );
   		return t;
 #endif
@@ -596,7 +618,19 @@ pushdup()
 	}
 	t = calloc(1,sizeof(*Stack));
 	t->type = Stack->type;
-	t->val =  Stack->val;
+
+	// If element is a string, perform deep copy of Stack->val->p
+	if (Stack->val->Type == PUSH_STRING) {
+		t->val = calloc(1, sizeof(struct SWF_ACTIONPUSHPARAM));
+		*t->val = *Stack->val;
+
+		int len = strlen(Stack->val->p.String) + 1; // NULL terminated
+		t->val->p.String = calloc(len, sizeof(char));
+		strcpy(t->val->p.String, Stack->val->p.String);
+	} else {
+		t->val =  Stack->val;
+	}
+
 	t->next = Stack;
 	Stack = t;
 }
